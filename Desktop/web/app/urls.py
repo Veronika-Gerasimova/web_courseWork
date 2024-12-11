@@ -4,7 +4,7 @@ from django.urls import include, path
 from django.conf.urls.static import static
 
 from rest_framework.routers import DefaultRouter
-from transportation.api import ClientViewSet, FlightViewSet, TicketViewSet, BaggageViewSet, AirplaneViewSet, UserViewSet
+from transportation.api import ClientViewSet, FlightViewSet, SecuredModelViewSet, TicketViewSet, BaggageViewSet, AirplaneViewSet, UserViewSet
 
 from transportation import views 
 
@@ -15,8 +15,7 @@ router.register("tickets", TicketViewSet, basename="tickets")
 router.register("baggage", BaggageViewSet, basename="baggage")
 router.register("airplanes", AirplaneViewSet, basename="airplanes")
 router.register("user", UserViewSet, basename="user")
-#router.register("user-profile", UserProfileViewSet, basename="user")
-
+router.register("auth", SecuredModelViewSet, basename="auth") 
 
 urlpatterns = [
     path('clients/', views.ShowClientsView.as_view(), name='show_clients'),
@@ -25,7 +24,5 @@ urlpatterns = [
     path('baggage/', views.ShowBaggagesView.as_view(), name='show_baggages'),
     path('airplane/', views.ShowAirplanesView.as_view(), name='show_airplanes'),
     path('admin/', admin.site.urls),
-    path('api/', include(router.urls)),
-    #path('api/user/info/', UserViewSet.as_view({'post': 'info'}), name='info'),
     path('api/', include(router.urls)),
 ] + static (settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

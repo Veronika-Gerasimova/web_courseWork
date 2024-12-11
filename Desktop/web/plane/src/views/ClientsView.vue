@@ -1,8 +1,6 @@
 <script setup>
-import { computed, onBeforeMount,  watch, ref } from 'vue';
+import { computed, onBeforeMount,  watch, ref, inject } from 'vue';
 import axios from 'axios';
-import { createApp } from 'vue';
-import TwoLoginVue from './TwoLoginVue.vue'; 
 
 const clients = ref([]);
 const tickets = ref([]);
@@ -18,6 +16,8 @@ const showModal = ref(false);
 const clientToRemove = ref(null); 
 const showDeleteConfirmModal = ref(false);
 const animationState = ref(""); 
+const otpVerified = inject('otpVerified');
+const checkOtpStatus = inject('checkOtpStatus');
 
 const updatePlaneState = () => {
   if (clientToAdd.value.name && clientToAdd.value.email && clientToAdd.value.phone) {
@@ -138,30 +138,11 @@ async function onRemoveConfirmed() {
   }
 }
 
-const showOtpModal = ref(false); 
-const otpVerified = ref(false); 
-const otpVerificationTime = ref(null)
-
-function openOtpModal() {
-  showOtpModal.value = true;
-}
-
-function onOtpSuccess() {
-  otpVerified.value = true; 
-  otpVerificationTime.value = Date.now(); 
-  showOtpModal.value = false; 
-}
-
-function onOtpClose() {
-  showOtpModal.value = false; 
-}
-
 async function onClientEditClick(client) {
-  if (!otpVerified.value || (Date.now() - otpVerificationTime.value) > 60000) { 
-    openOtpModal(); 
-    return; 
+  if (!otpVerified || !otpVerified.value) {
+    alert("Доступ запрещён. Выполните двойную аутентификацию.");
+    return;
   }
-
   clientToEdit.value = { ...client };
 
   if (client.picture) {
@@ -173,9 +154,14 @@ async function onClientEditClick(client) {
   showEditModal.value = true;
 }
 
+
 const showEditModal = ref(false);
 
 async function onUpdateClient() {
+  if (!otpVerified.value) {
+    alert("Доступ запрещён. Выполните двойную аутентификацию.");
+    return;
+  }
   const formData = new FormData();
   if (clientEditPictureRef.value?.files[0]) {
     formData.append('picture', clientEditPictureRef.value.files[0]);
@@ -215,6 +201,7 @@ onBeforeMount(async () => {
   await fetchClients();
   await fetchTickets();
   await fetchClientStats();
+  await checkOtpStatus();
 });
 </script>
 
@@ -352,48 +339,89 @@ onBeforeMount(async () => {
     </div>
 
     <!-- Модальное окно для редактирования клиента -->
-    <div v-if="showEditModal" class="modal fade show" tabindex="-1" style="display: block;">
-      <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Редактировать клиента</h5>
-            <button type="button" class="btn-close" @click="showEditModal = false"></button>
-          </div>
-          <div class="modal-body">
-            <div class="row g-3">
-              <div class="col-12">
-                <div class="form-floating">
-                  <input type="text" class="form-control" id="editClientName" v-model="clientToEdit.name" required />
-                  <label for="editClientName">ФИО</label>
-                </div>
-              </div>
-              <div class="col-12">
-                <div class="form-floating">
-                  <input type="email" class="form-control" id="editClientEmail" v-model="clientToEdit.email" required />
-                  <label for="editClientEmail">Электронная почта</label>
-                </div>
-              </div>
-              <div class="col-12">
-                <div class="form-floating">
-                  <input type="text" class="form-control" id="editClientPhone" v-model="clientToEdit.phone" required />
-                  <label for="editClientPhone">Телефон</label>
-                </div>
-              </div>
-              <div class="col-12 col-md-auto">
-                <input class="form-control" type="file" ref="clientEditPictureRef" @change="clientEditPictureChange">
-              </div>
-              <div class="col-12 col-md-auto">
-                <img v-if="clientEditPictureUrl" :src="clientEditPictureUrl" style="max-height: 60px;" alt="Предпросмотр">
-              </div>
+<div v-if="showEditModal" class="modal fade show" tabindex="-1" style="display: block; background-color: rgba(0, 0, 0, 0.5);">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <!-- Заголовок -->
+      <div class="modal-header">
+        <h5 class="modal-title">Редактировать данные клиента</h5>
+        <button type="button" class="btn-close" @click="showEditModal = false"></button>
+      </div>
+      
+      <!-- Тело модального окна -->
+      <div class="modal-body">
+        <div class="row g-4">
+          <!-- Имя клиента -->
+          <div class="col-12">
+            <div class="form-floating">
+              <input 
+                type="text" 
+                class="form-control" 
+                id="editClientName" 
+                v-model="clientToEdit.name" 
+                placeholder="Введите ФИО" 
+                required />
+              <label for="editClientName">ФИО</label>
             </div>
           </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="showEditModal = false">Закрыть</button>
-            <button type="button" class="btn btn-primary" @click="onUpdateClient">Сохранить</button>
+
+          <!-- Электронная почта -->
+          <div class="col-12">
+            <div class="form-floating">
+              <input 
+                type="email" 
+                class="form-control" 
+                id="editClientEmail" 
+                v-model="clientToEdit.email" 
+                placeholder="Введите адрес электронной почты" 
+                required />
+              <label for="editClientEmail">Электронная почта</label>
+            </div>
+          </div>
+
+          <!-- Телефон -->
+          <div class="col-12">
+            <div class="form-floating">
+              <input 
+                type="text" 
+                class="form-control" 
+                id="editClientPhone" 
+                v-model="clientToEdit.phone" 
+                placeholder="Введите номер телефона" 
+                required />
+              <label for="editClientPhone">Телефон</label>
+            </div>
+          </div>
+
+          <!-- Фото -->
+          <div class="col-12 col-md-auto">
+            <label class="form-label">Загрузить фото</label>
+            <input 
+              class="form-control" 
+              type="file" 
+              ref="clientEditPictureRef" 
+              @change="clientEditPictureChange">
+          </div>
+          <div class="col-12 col-md-auto">
+            <img 
+              v-if="clientEditPictureUrl" 
+              :src="clientEditPictureUrl" 
+              class="img-thumbnail" 
+              style="max-height: 100px;" 
+              alt="Предпросмотр">
           </div>
         </div>
       </div>
+      
+      <!-- Футер -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" @click="showEditModal = false">Закрыть</button>
+        <button type="button" class="btn btn-success" @click="onUpdateClient">Сохранить изменения</button>
+      </div>
     </div>
+  </div>
+</div>
+
 
     <!-- Модальное окно для подтверждения удаления клиента -->
     <div v-if="showDeleteConfirmModal" class="modal fade show" tabindex="-1" style="display: block;" @click="showDeleteConfirmModal = false">
@@ -409,24 +437,6 @@ onBeforeMount(async () => {
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" @click="showDeleteConfirmModal = false">Отмена</button>
             <button type="button" class="btn btn-danger" @click="onRemoveConfirmed">Удалить</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Модальное окно двухфакторной проверки -->
-    <div v-if="showOtpModal" class="modal fade show" tabindex="-1" style="display: block;">
-      <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Двухфакторная проверка</h5>
-            <button type="button" class="btn-close" @click="onOtpClose"></button>
-          </div>
-          <div class="modal-body">
-            <TwoLoginVue 
-              @onSuccess="onOtpSuccess" 
-              @onClose="onOtpClose" 
-            />
           </div>
         </div>
       </div>

@@ -1,3 +1,5 @@
+import base64
+import logging
 from typing import Any
 from django.views.generic import TemplateView
 
@@ -44,3 +46,4 @@ class ShowAirplanesView(TemplateView):
         context = super().get_context_data(**kwargs)
         context['airplanes'] = Airplane.objects.all()
         return context     
+

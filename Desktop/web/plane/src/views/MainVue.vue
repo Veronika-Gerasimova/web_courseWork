@@ -122,6 +122,7 @@ onBeforeMount(async () => {
           <h3 class="text-center mb-4">Доступные рейсы</h3>
           <div class="list-group">
             <div
+              v-if="filteredFlights.length > 0"
               v-for="flight in filteredFlights"
               :key="flight.id"
               class="list-group-item d-flex justify-content-between align-items-center shadow mb-3"
@@ -136,6 +137,13 @@ onBeforeMount(async () => {
                 <router-link :to="'/flights'" class="btn btn-outline-info">
                   Подробнее
                 </router-link>
+              </div>
+            </div>
+            <!-- Если рейсов нет -->
+            <div v-else class="d-flex justify-content-center align-items-center py-5">
+              <div class="not-found-card shadow-lg p-4 text-center">
+                <h5 class="text-uppercase text-muted">Рейсы не найдены</h5>
+                <p class="text-secondary">Попробуйте изменить параметры поиска</p>
               </div>
             </div>
           </div>
@@ -194,5 +202,12 @@ button.btn-info {
 .img-fluid {
   width: 100%;
   height: 60%;
+}
+.not-found-card {
+  background-color: #f8f9fa; 
+  border-radius: 8px;      
+  max-width: 600px;        
+  margin: 0 auto;          
+  color: #6c757d;          
 }
 </style>

@@ -1,7 +1,7 @@
 <script setup>
 import { ref,computed,  onBeforeMount } from 'vue';
 import axios from 'axios';
-
+import { inject } from 'vue';
 const flights = ref([]);
 const newFlight = ref({
   flight_number: '',
@@ -38,8 +38,10 @@ const flightToEdit = ref({
 });
 const flightToRemove = ref(null); 
 const showDeleteConfirmModal = ref(false); 
-
+const showEditModal = ref(false);
 const stats = ref({ count: 0, avg: 0, max: 0, min: 0 });
+const otpVerified = inject('otpVerified');
+const checkOtpStatus = inject('checkOtpStatus');
 
 async function fetchFlightsStats() {
   try {
@@ -86,17 +88,51 @@ async function onRemoveConfirmed() {
 }
 
 function openEditModal(flight) {
-  flightToEdit.value = { ...flight };
+  console.log("OTP Verified:", otpVerified?.value); // Проверка статуса аутентификации
+  if (!otpVerified || !otpVerified.value) {
+    alert("Доступ запрещён. Выполните двойную аутентификацию.");
+    return;
+  }
+
+  flightToEdit.value = { ...flight }; // Установка данных для редактирования
+  showEditModal.value = true; // Установка видимости модального окна
+  console.log("showEditModal:", showEditModal.value); // Логируем значение
 }
 
+
+// Обновление данных рейса
 async function updateFlight() {
-  await axios.put(`/api/flights/${flightToEdit.value.id}/`, flightToEdit.value);
-  await fetchFlights();
+  if (!otpVerified || !otpVerified.value) {
+    alert("Доступ запрещён. Выполните двойную аутентификацию.");
+    return;
+  }
+
+  try {
+    const formData = {
+      flight_number: flightToEdit.value.flight_number,
+      departure: flightToEdit.value.departure,
+      destination: flightToEdit.value.destination,
+      departure_time: flightToEdit.value.departure_time,
+      arrival_time: flightToEdit.value.arrival_time
+    };
+
+    console.log("Form Data to update:", formData); // Логирование данных
+    console.log("Flight ID:", flightToEdit.value.id); // Логирование ID рейса
+
+    // Отправляем PUT запрос для обновления рейса
+    await axios.put(`/api/flights/${flightToEdit.value.id}/`, formData);
+    await fetchFlights(); // Обновляем список рейсов после сохранения
+  } catch (error) {
+    console.error("Ошибка при обновлении рейса:", error.response ? error.response.data : error);
+  }
+
+  showEditModal.value = false; // Закрытие модального окна после обновления
 }
 
 onBeforeMount(async () => {
   await fetchFlights();
   await fetchFlightsStats();
+  await checkOtpStatus();
 });
 </script>
 
@@ -176,7 +212,7 @@ onBeforeMount(async () => {
           <p>Время отправления: {{ new Date(flight.departure_time).toLocaleString() }}</p>
           <p>Время прибытия: {{ new Date(flight.arrival_time).toLocaleString() }}</p>
         </div>  
-        <button class="btn btn-success" @click="openEditModal(flight)" data-bs-toggle="modal" data-bs-target="#editFlightModal">
+        <button class="btn btn-success" @click="openEditModal(flight)">
           <i class="bi bi-pen-fill"></i>
         </button>
         <button class="btn btn-danger" @click="confirmRemoveFlight(flight)">
@@ -205,8 +241,8 @@ onBeforeMount(async () => {
         </div>
 
     <!-- Модальное окно для редактирования рейса -->
-    <div class="modal fade" id="editFlightModal" tabindex="-1" aria-labelledby="editFlightModalLabel" aria-hidden="true">
-      <div class="modal-dialog modal-lg"> <!-- Сделаем модальное окно больше для удобства -->
+    <div v-if="showEditModal" class="modal fade show" tabindex="-1" style="display: block;">
+      <div class="modal-dialog modal-lg"> 
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title" id="editFlightModalLabel">Редактировать рейс</h5>
@@ -214,7 +250,7 @@ onBeforeMount(async () => {
           </div>
           <div class="modal-body">
             <form>
-              <div class="row g-3"> <!-- Используем `g-3` для отступов между полями -->
+              <div class="row g-3">
                 <div class="col-12">
                   <div class="form-floating">
                     <input type="text" class="form-control" id="editFlightNumber" v-model="flightToEdit.flight_number" required>
@@ -249,13 +285,12 @@ onBeforeMount(async () => {
             </form>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
-            <button type="button" class="btn btn-primary" @click="updateFlight" data-bs-dismiss="modal">Сохранить изменения</button>
+            <button type="button" class="btn btn-secondary" @click="closeEditModal">Закрыть</button>
+            <button type="button" class="btn btn-primary" @click="updateFlight">Сохранить изменения</button>
           </div>
         </div>
       </div>
     </div>
-
   </div>
 </template>
 

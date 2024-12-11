@@ -1,10 +1,10 @@
 <script setup>
-import { onBeforeMount, ref } from 'vue';
+import { onBeforeMount, ref, inject } from 'vue';
 import axios from 'axios';
 
 const baggages = ref([]);
 const clients = ref([]);
-const tickets = ref([]); // Массив билетов
+const tickets = ref([]);
 const newBaggage = ref({
   ticket: null,
   weight: '',
@@ -15,7 +15,10 @@ const baggageToRemove = ref(null);
 const showDeleteConfirmModal = ref(false); 
 
 const stats = ref({ count: 0, avg: 0, max: 0, min: 0 });
+const otpVerified = inject('otpVerified');
+const checkOtpStatus = inject('checkOtpStatus');
 
+// Функции для получения данных
 async function fetchBaggagesStats() {
   try {
     const response = await axios.get("/api/baggage/stats/");
@@ -25,19 +28,16 @@ async function fetchBaggagesStats() {
   }
 }
 
-// Функция получения всех клиентов
 async function fetchClients() {
   const r = await axios.get('/api/clients/');
   clients.value = r.data;
 }
 
-// Функция получения билетов
 async function fetchTickets() {
   const r = await axios.get('/api/tickets/');
   tickets.value = r.data;
 }
 
-// Функция получения багажа
 async function fetchBaggages() {
   const r = await axios.get('/api/baggage/');
   baggages.value = r.data;
@@ -67,7 +67,7 @@ async function removeBaggage(id) {
 // Открытие модального окна подтверждения удаления
 function confirmRemoveBaggage(baggage) {
   baggageToRemove.value = baggage;
-  showDeleteConfirmModal.value = true; // Открываем модальное окно
+  showDeleteConfirmModal.value = true;
 }
 
 // Подтверждение удаления багажа
@@ -78,18 +78,32 @@ async function onRemoveConfirmed() {
     baggageToRemove.value = null; 
   }
 }
-const showEditModal = ref(false);
 
+const showEditModal = ref(false); // Переменная для открытия модального окна редактирования
+
+// Открытие модального окна редактирования
 async function onBaggageEditClick(baggage) {
-  // Устанавливаем данные о багаже
+  if (!otpVerified || !otpVerified.value) {
+    alert("Доступ запрещён. Выполните двойную аутентификацию.");
+    return;
+  }
+
+  // Устанавливаем данные для редактирования багажа
   baggageToEdit.value = {
     ...baggage,
     ticket: baggage.ticket_detail.id // Передаем только ID билета
   };
-  showEditModal.value = true; // Открытие модального окна для редактирования
+
+  // Открываем модальное окно
+  showEditModal.value = true; 
 }
 
+// Обновление багажа
 async function updateBaggage() {
+  if (!otpVerified || !otpVerified.value) {
+    alert("Доступ запрещён. Выполните двойную аутентификацию.");
+    return;
+  }
   try {
     const formData = {
       weight: baggageToEdit.value.weight,
@@ -101,20 +115,19 @@ async function updateBaggage() {
     console.log("Baggage ID:", baggageToEdit.value.id); // Логирование ID багажа
 
     await axios.put(`/api/baggage/${baggageToEdit.value.id}/`, formData);
-    await fetchBaggages(); // Обновление списка багажа после сохранения
+    await fetchBaggages(); // Обновляем список багажа после сохранения
   } catch (error) {
     console.error("Ошибка при обновлении багажа:", error.response ? error.response.data : error);
   }
   showEditModal.value = false; // Закрытие модального окна после обновления
 }
 
-
-
 onBeforeMount(async () => {
   await fetchClients();
   await fetchTickets();
   await fetchBaggages();
   await fetchBaggagesStats();
+  await checkOtpStatus();
 });
 </script>
 
@@ -159,7 +172,7 @@ onBeforeMount(async () => {
         <h5>{{ baggage.baggage_type }} - Вес: {{ baggage.weight }} кг</h5>
         <p><strong>Билет:</strong> {{ baggage.ticket_detail.seat_number }} ({{ baggage.ticket_detail.client_detail.name }})</p>
       </div>
-      <button class="btn btn-success" @click="onBaggageEditClick(baggage)" data-bs-toggle="modal" data-bs-target="#editBaggageModal">
+      <button class="btn btn-success" @click="onBaggageEditClick(baggage)">
         <i class="bi bi-pen-fill"></i>
       </button>
       <button class="btn btn-danger" @click="confirmRemoveBaggage(baggage)">
@@ -167,7 +180,6 @@ onBeforeMount(async () => {
       </button>
     </div>
   
-
   <!-- Модальное окно для подтверждения удаления  -->
   <div v-if="showDeleteConfirmModal" class="modal fade show" tabindex="-1" style="display: block;" @click="showDeleteConfirmModal = false">
       <div class="modal-dialog modal-dialog-centered">
@@ -188,15 +200,15 @@ onBeforeMount(async () => {
     </div>
 
     <!-- Модальное окно для редактирования багажа -->
-    <div class="modal fade" id="editBaggageModal" tabindex="-1" aria-labelledby="editBaggageModalLabel" aria-hidden="true">
-      <div class="modal-dialog modal-lg"> 
+    <div v-if="showEditModal" class="modal fade show" tabindex="-1" style="display: block;">
+      <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header">
-            <h1 class="modal-title fs-5" id="editBaggageModalLabel">Редактировать багаж</h1>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            <h1 class="modal-title fs-5">Редактировать багаж</h1>
+            <button type="button" class="btn-close" @click="showEditModal = false"></button>
           </div>
           <div class="modal-body">
-            <div class="row g-3"> 
+            <div class="row g-3">
               <div class="col-12">
                 <div class="form-floating">
                   <input type="text" class="form-control" id="editBaggageType" v-model="baggageToEdit.baggage_type" required />
@@ -220,14 +232,15 @@ onBeforeMount(async () => {
             </div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
-            <button type="button" class="btn btn-primary" @click="updateBaggage" data-bs-dismiss="modal">Сохранить</button>
+            <button type="button" class="btn btn-secondary" @click="showEditModal = false">Закрыть</button>
+            <button type="button" class="btn btn-primary" @click="updateBaggage">Сохранить</button>
           </div>
         </div>
       </div>
     </div>
   </div>
 </template>
+
 
 <style scoped>
 .baggage-item {

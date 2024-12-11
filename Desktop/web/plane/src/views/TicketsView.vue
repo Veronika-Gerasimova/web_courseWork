@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeMount, ref } from 'vue';
+import { computed, onBeforeMount, ref , inject} from 'vue';
 import axios from 'axios';
 
 const tickets = ref([]);  // Массив для билетов
@@ -14,6 +14,8 @@ const newTicket = ref({
 const ticketToEdit = ref({});
 const ticketToRemove = ref(null); 
 const showDeleteConfirmModal = ref(false); 
+const otpVerified = inject('otpVerified');
+const checkOtpStatus = inject('checkOtpStatus');
 
 const filters = ref({
   client: '',
@@ -70,6 +72,10 @@ async function fetchFlights() {
   const r = await axios.get("/api/flights/");
   flights.value = r.data;
 }
+function onUpdateTicketAndClose() {
+  onUpdateTicket();  // Обновление билета
+  showModal.value = false;  // Закрытие модального окна
+}
 
 // Получение всех билетов
 async function fetchTickets() {
@@ -109,17 +115,33 @@ async function onRemoveConfirmed() {
     ticketToRemove.value = null; 
   }
 }
+const showModal = ref(false); // Состояние для открытия/закрытия модального окна
 
 function onTicketEditClick(ticket) {
+  // Проверка статуса двухфакторной аутентификации
+  if (!otpVerified || !otpVerified.value) {
+    alert("Доступ запрещён. Выполните двойную аутентификацию.");
+    return;
+  }
+  
+  // Присваиваем данные билета в переменную для редактирования
   ticketToEdit.value = {
     id: ticket.id,  
     client: ticket.client_detail.id, 
     flight: ticket.flight_detail.id,  
     seat_number: ticket.seat_number
   };
+
+  // Меняем состояние, чтобы открыть модальное окно
+  showModal.value = true;
 }
 
+
 async function onUpdateTicket() {
+  if (!otpVerified || !otpVerified.value) {
+    alert("Доступ запрещён. Выполните двойную аутентификацию.");
+    return;
+  }
   try {
     console.log("Обновляем билет с ID:", ticketToEdit.value.id);  
     const updateData = {
@@ -133,13 +155,14 @@ async function onUpdateTicket() {
     console.error("Ошибка при обновлении билета:", error.response ? error.response.data : error.message);
   }
 }
-
-onBeforeMount(() => {
-  fetchClients();
-  fetchFlights();
-  fetchTickets();
-  fetchTicketsStats();
+onBeforeMount(async () => {
+  await fetchClients();
+  await fetchFlights();
+  await fetchTickets();
+  await fetchTicketsStats();
+  await checkOtpStatus();
 });
+
 </script>
 
 <template>
@@ -236,7 +259,7 @@ onBeforeMount(() => {
           </p>
         </div>
         <div class="ticket-actions">
-          <button class="btn btn-success" @click="onTicketEditClick(ticket)" data-bs-toggle="modal" data-bs-target="#editTicketModal">
+          <button class="btn btn-success" @click="onTicketEditClick(ticket)">
             <i class="bi bi-pen-fill"></i>
           </button>
           <button class="btn btn-danger" @click="confirmRemoveTicket(ticket)">
@@ -265,52 +288,53 @@ onBeforeMount(() => {
         </div>
     
     <!-- Модальное окно для редактирования билета -->
-    <div class="modal fade" id="editTicketModal" tabindex="-1" aria-labelledby="editTicketModalLabel" aria-hidden="true">
-      <div class="modal-dialog modal-lg"> <!-- Сделаем модальное окно больше для удобства -->
-        <div class="modal-content">
-          <div class="modal-header">
-            <h1 class="modal-title fs-5" id="editTicketModalLabel">Редактировать билет</h1>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body">
-            <div class="row g-3"> <!-- Используем `g-3` для отступов между полями -->
-              <div class="col-12">
-                <div class="form-floating">
-                  <input type="text" class="form-control" id="editSeatNumber" v-model="ticketToEdit.seat_number" required />
-                  <label for="editSeatNumber">Номер места</label>
-                </div>
-              </div>
-              <div class="col-12">
-                <div class="form-floating">
-                  <select class="form-select" v-model="ticketToEdit.client" required>
-                    <option value="" disabled>Выберите клиента</option>
-                    <option v-for="client in clients" :key="client.id" :value="client.id">
-                      {{ client.name }} ({{ client.email }})
-                    </option>
-                  </select>
-                  <label for="editClientSelect">Клиент</label>
-                </div>
-              </div>
-              <div class="col-12">
-                <div class="form-floating">
-                  <select class="form-select" v-model="ticketToEdit.flight" required>
-                    <option value="" disabled>Выберите рейс</option>
-                    <option v-for="flight in flights" :key="flight.id" :value="flight.id">
-                      {{ flight.flight_number }}: {{ flight.departure }} -> {{ flight.destination }}
-                    </option>
-                  </select>
-                  <label for="editFlightSelect">Рейс</label>
-                </div>
-              </div>
+<div v-if="showModal" class="modal fade show" id="editTicketModal" tabindex="-1" aria-labelledby="editTicketModalLabel" aria-hidden="true" style="display: block;">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="editTicketModalLabel">Редактировать билет</h1>
+        <button type="button" class="btn-close" @click="showModal = false"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <div class="form-floating">
+              <input type="text" class="form-control" id="editSeatNumber" v-model="ticketToEdit.seat_number" required />
+              <label for="editSeatNumber">Номер места</label>
             </div>
           </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
-            <button type="button" class="btn btn-primary" @click="onUpdateTicket" data-bs-dismiss="modal">Сохранить изменения</button>
+          <div class="col-12">
+            <div class="form-floating">
+              <select class="form-select" v-model="ticketToEdit.client" required>
+                <option value="" disabled>Выберите клиента</option>
+                <option v-for="client in clients" :key="client.id" :value="client.id">
+                  {{ client.name }} ({{ client.email }})
+                </option>
+              </select>
+              <label for="editClientSelect">Клиент</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="form-floating">
+              <select class="form-select" v-model="ticketToEdit.flight" required>
+                <option value="" disabled>Выберите рейс</option>
+                <option v-for="flight in flights" :key="flight.id" :value="flight.id">
+                  {{ flight.flight_number }}: {{ flight.departure }} -> {{ flight.destination }}
+                </option>
+              </select>
+              <label for="editFlightSelect">Рейс</label>
+            </div>
           </div>
         </div>
       </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" @click="showModal = false">Закрыть</button>
+        <button type="button" class="btn btn-primary" @click="onUpdateTicketAndClose">Сохранить изменения</button>
+
+      </div>
     </div>
+  </div>
+</div>
 
   </div>
 </template>

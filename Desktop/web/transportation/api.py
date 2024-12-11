@@ -1,8 +1,8 @@
 from rest_framework.viewsets import GenericViewSet
+from django.contrib.auth.models import User
 from rest_framework import mixins
-from transportation.models import Client, Flight, Ticket, Baggage, Airplane
-from transportation.serializers import ClientSerializer, FlightSerializer, LoginSerializer, TicketSerializer, BaggageSerializer, AirplaneSerializer,  UserLoginSerializer,\
-    OTPSerializer
+from transportation.models import Client, Flight, Ticket, Baggage, Airplane, UserProfile
+from transportation.serializers import ClientSerializer, FlightSerializer, TicketSerializer, BaggageSerializer, AirplaneSerializer,  UserLoginSerializer
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Count, Avg, Max, Min
@@ -10,7 +10,7 @@ from rest_framework.permissions import IsAuthenticated, BasePermission
 from django.core.cache import cache
 from django.contrib.auth import authenticate, login
 import pyotp
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, viewsets, status
 from django.contrib.auth import authenticate, login, logout
 from django.views.decorators.csrf import csrf_exempt 
 import os
@@ -19,7 +19,10 @@ from openpyxl import Workbook  # для Excel
 from docx import Document  # для Word
 from rest_framework.permissions import BasePermission
 from django.core.cache import cache
-
+from django.http import HttpResponse
+import qrcode
+from io import BytesIO
+from rest_framework.viewsets import ModelViewSet
 # Миксин для фильтрации данных по пользователю
 class UserFilteredViewSet(GenericViewSet):
     def get_queryset(self):
@@ -204,9 +207,15 @@ class UserViewSet(viewsets.GenericViewSet):
             return Response(serializer.errors, status=400)  # Возврат ошибок валидации
         
         user = authenticate(request, username=serializer.validated_data['username'], password=serializer.validated_data['password'])
+        
         if user:
+            # Создаем профиль пользователя, если его нет
+            if not hasattr(user, 'profile'):
+                user.profile = UserProfile.objects.create(user=user)
+            
             login(request, user)
             return Response({"detail": "Login successful"})
+        
         return Response({"detail": "Invalid credentials"}, status=401)
 
     @action(url_path="logout", methods=["POST"], detail=False)
@@ -223,28 +232,70 @@ class UserViewSet(viewsets.GenericViewSet):
             return Response({"detail": "Registration successful"})
         return Response({"detail": "Username and password are required"}, status=400)
 
-class UserProfileViewSet(GenericViewSet): 
-    @action(url_path="otp-login", methods=["POST"], detail=False, serializer_class=OTPSerializer)
+
+def generate_otp_key(user):
+    # Проверяем, есть ли уже ключ у пользователя
+    if not user.profile.otp_key:
+        # Генерируем новый OTP ключ для пользователя
+        totp = pyotp.TOTP(pyotp.random_base32())  # Генерация нового случайного ключа
+        user.profile.otp_key = totp.secret  # Сохраняем его в профиле пользователя
+        user.profile.save()  # Сохраняем изменения
+
+
+class SecuredModelViewSet(ModelViewSet):
+    class OTPSerializer(serializers.Serializer):
+        key = serializers.CharField()
+
+    class OTPRequired(BasePermission):
+        """Проверка действующего OTP-токена"""
+        def has_permission(self, request, view):
+            return bool(cache.get(f'otp_good_{request.user.id}', False))
+
+    @action(detail=False, methods=['POST'], url_path='otp-login', serializer_class=OTPSerializer)
     def otp_login(self, request, *args, **kwargs):
+        generate_otp_key(request.user)
+        totp = pyotp.TOTP(request.user.profile.otp_key)  # `otp_key` должен быть у пользователя
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        key = serializer.validated_data['key']
-        if key == "1234":
-            cache.set(f'otp_good_{request.user.id}', True, timeout=300)
-            return Response({'success': True})
-        return Response({'success': False}, status=400)
+        success = False
+        if totp.verify(serializer.validated_data['key']):
+            cache.set(f'otp_good_{request.user.id}', True, timeout=300)  # Время жизни OTP (300 сек.)
+            success = True
 
-    @action(url_path="otp-status", methods=["GET"], detail=False)
+        return Response({'success': success}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['GET'], url_path='otp-status')
     def otp_status(self, request, *args, **kwargs):
         otp_good = cache.get(f'otp_good_{request.user.id}', False)
-        return Response({'otp_good': otp_good})
-    
-    class OTPRequired(BasePermission):
-            def has_permission(self, request, view):
-                return bool(request.user and cache.get('otp_good', False))
-            
-    @action(url_path="otp-required", methods=["GET"], detail=False, permission_classes=[OTPRequired])
-    def otp_required(self, request, *args, **kwargs):
-        return Response({'success': True})
+        return Response({'otp_good': otp_good}, status=status.HTTP_200_OK)
 
+    def get_permissions(self):
+        """Добавляем проверку на OTP для редактирования."""
+        if self.action in ['update', 'partial_update', 'destroy']:
+            self.permission_classes = [IsAuthenticated, self.OTPRequired]
+        return super().get_permissions()
+    
+    @action(detail=False, methods=['GET'], url_path='otp-qr-code')
+    def generate_qr_code(self, request, *args, **kwargs):
+        # Убедитесь, что пользователь имеет профиль с OTP-ключом
+        if not hasattr(request.user, 'profile') or not request.user.profile.otp_key:
+            print("Ошибка: профиль или ключ OTP отсутствуют.")
+            return Response({"error": "Профиль пользователя не настроен."}, status=400)
+
+
+        # Создание OTP URI
+        totp = pyotp.TOTP(request.user.profile.otp_key)
+        otp_uri = totp.provisioning_uri(
+            name=request.user.username,
+            issuer_name="Travel"
+        )
+
+        # Создание QR-кода
+        qr = qrcode.make(otp_uri)
+        buffer = BytesIO()
+        qr.save(buffer, format="PNG")
+        buffer.seek(0)
+
+        # Возврат QR-кода в формате изображения
+        return HttpResponse(buffer, content_type="image/png")

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onBeforeMount } from 'vue';
+import { ref, onBeforeMount, inject } from 'vue';
 import axios from 'axios';
 
 const airplanes = ref([]); 
@@ -11,14 +11,14 @@ const airplanePictureRef = ref();
 const airplaneEditPictureRef = ref(); 
 const airplaneAddPictureUrl = ref('');
 const airplaneEditPictureUrl = ref(''); 
-
 const showModal = ref(false); 
 const showEditAirplaneModal = ref(false); 
 const showDeleteConfirmModal = ref(false); 
-
+const otpVerified = inject('otpVerified');
+const checkOtpStatus = inject('checkOtpStatus');
 const airplaneToRemove = ref(null); 
-
 const stats = ref({ count: 0, avg: 0, max: 0, min: 0 });
+const selectedPicture = ref(null);
 
 async function fetchPlanesStats() {
   try {
@@ -75,12 +75,20 @@ function airplaneAddPictureChange() {
 }
 
 async function onAirplaneEditClick(airplane) {
+  if (!otpVerified || !otpVerified.value) {
+    alert("Доступ запрещён. Выполните двойную аутентификацию.");
+    return;
+  }
   airplaneToEdit.value = { ...airplane };
   airplaneEditPictureUrl.value = airplane.picture || ''; 
   showEditAirplaneModal.value = true;
 }
 
 async function updateAirplane() {
+  if (!otpVerified || !otpVerified.value) {
+    alert("Доступ запрещён. Выполните двойную аутентификацию.");
+    return;
+  }
   const formData = new FormData();
   formData.set('tail_number', airplaneToEdit.value.tail_number);
   formData.set('model', airplaneToEdit.value.model);
@@ -106,7 +114,19 @@ function closeEditModal() {
   airplaneEditPictureUrl.value = '';
   airplaneEditPictureRef.value.value = null;
   showEditAirplaneModal.value = false;
+
+  // Удаляем backdrop и класс modal-open
+  document.body.classList.remove('modal-open');
+  const backdrop = document.querySelector('.modal-backdrop');
+  if (backdrop) {
+    backdrop.remove();
+  }
 }
+function openPictureModal(image) {
+  selectedPicture.value = image;
+  showModal.value = true; 
+}
+
 
 async function removeAirplane(id) {
   try {
@@ -135,10 +155,11 @@ function getFlightInfo(flightId) {
   return flight ? `${flight.flight_number}: ${flight.departure} -> ${flight.destination}` : 'Нет рейса';
 }
 
-onBeforeMount(() => {
-  fetchFlights();
-  fetchAirplanes();
-  fetchPlanesStats();
+onBeforeMount(async () => {
+  await fetchFlights();
+  await fetchAirplanes();
+  await fetchPlanesStats();
+  await checkOtpStatus();
 });
 </script>
 
@@ -196,7 +217,7 @@ onBeforeMount(() => {
           <p>Рейс: {{ getFlightInfo(airplane.flight) }}</p>
         </div>
         <div class="button-group">
-          <button class="btn btn-success" @click="onAirplaneEditClick(airplane)" data-bs-toggle="modal" data-bs-target="#editAirplaneModal">Редактировать</button>
+          <button class="btn btn-success" @click="onAirplaneEditClick(airplane)"><i class="bi bi-pen-fill"></i> Редактировать</button>
           <button class="btn btn-danger" @click="confirmRemovePlane(airplane)">Удалить</button>
         </div>
       </div>
@@ -221,7 +242,7 @@ onBeforeMount(() => {
             </div>
 
     <!-- Модальное окно для редактирования самолета -->
-    <div class="modal fade" id="editAirplaneModal" tabindex="-1" aria-labelledby="editAirplaneModalLabel" aria-hidden="true " v-show="showEditAirplaneModal">
+    <div v-if="showEditAirplaneModal" class="modal fade show" tabindex="-1" style="display: block;">
       <div class="modal-dialog modal-lg"> 
         <div class="modal-content">
           <div class="modal-header">
@@ -275,11 +296,12 @@ onBeforeMount(() => {
       </div>
     </div>
 
-    <div v-if="showModal" class="modal fade show" tabindex="-1" style="display: block;" @click="showModal = false">
-      <div class="modal-dialog modal-dialog-centered">
+     <!-- Модальное окно для изображения -->
+     <div v-if="showModal" class="modal fade show" tabindex="-1" style="display: block;" @click="showModal = false">
+      <div class="modal-dialog modal-dialog-centered" @click.stop>
         <div class="modal-content">
           <div class="modal-body">
-            <img :src="selectedAirplaneImage" class="img-fluid" alt="Изображение самолета" @click.stop>
+            <img :src="selectedPicture" class="img-fluid" alt="Изображение самолета" />
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" @click="showModal = false">Закрыть</button>

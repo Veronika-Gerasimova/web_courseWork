@@ -1,5 +1,32 @@
 from django.db import models
 from django.contrib.auth.models import User
+
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+@receiver(post_save, sender=User)
+def create_user_profile(sender, instance, created, **kwargs):
+    if created:
+        UserProfile.objects.create(user=instance)
+
+@receiver(post_save, sender=User)
+def save_user_profile(sender, instance, **kwargs):
+    instance.profile.save()
+
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
+    otp_key = models.CharField("OTP Key", max_length=32, blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        # Генерируем OTP-ключ только при создании профиля, если его нет
+        if not self.otp_key:
+            import pyotp
+            self.otp_key = pyotp.random_base32()
+        super().save(*args, **kwargs)
+
 # Create your models here.
 class Client(models.Model):
     name = models.TextField("ФИО")

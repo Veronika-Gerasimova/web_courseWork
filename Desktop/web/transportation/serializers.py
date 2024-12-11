@@ -64,9 +64,3 @@ class UserLoginSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField()
     
-class OTPSerializer(serializers.Serializer):
-    key = serializers.CharField()
-
-class LoginSerializer(serializers.Serializer):
-    username = serializers.CharField(max_length=100)
-    password = serializers.CharField(write_only=True)    
